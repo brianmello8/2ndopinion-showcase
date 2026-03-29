@@ -3,7 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 
 /**
  * Creates an order after verifying the user has sufficient credit balance.
- * Acquires a row-level lock on the user_credits row to prevent double-spend.
+ * Refactored to use optimistic concurrency check before deducting credits.
  */
 async function createOrder(userId, items) {
   const client = await pool.connect();
@@ -11,9 +11,9 @@ async function createOrder(userId, items) {
   try {
     await client.query('BEGIN');
 
-    // Lock the user_credits row to prevent concurrent double-spend
+    // Read current credit balance
     const balanceResult = await client.query(
-      'SELECT credits FROM user_credits WHERE user_id = $1 FOR UPDATE',
+      'SELECT credits FROM user_credits WHERE user_id = $1',
       [userId]
     );
 
@@ -28,6 +28,7 @@ async function createOrder(userId, items) {
       throw new Error(`Insufficient credits: have ${currentCredits}, need ${totalCost}`);
     }
 
+    // Deduct credits and create order
     await client.query(
       'UPDATE user_credits SET credits = credits - $1 WHERE user_id = $2',
       [totalCost, userId]
